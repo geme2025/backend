@@ -1,5 +1,8 @@
-# Usar imagen oficial de Node.js LTS
-FROM node:18-alpine
+# Usar imagen oficial de Node.js LTS basada en Debian (incluye OpenSSL)
+FROM node:18-slim
+
+# Instalar OpenSSL necesario para Prisma
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 # Establecer directorio de trabajo
 WORKDIR /app
@@ -21,8 +24,8 @@ COPY . .
 EXPOSE 5000
 
 # Usuario no root para seguridad
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+RUN groupadd -g 1001 nodejs && \
+    useradd -u 1001 -g nodejs -s /bin/bash nodejs
 USER nodejs
 
 # Comando para iniciar la aplicación
