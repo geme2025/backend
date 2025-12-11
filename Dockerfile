@@ -6,9 +6,13 @@ WORKDIR /app
 
 # Copiar archivos de dependencias
 COPY package*.json ./
+COPY prisma ./prisma/
 
 # Instalar dependencias de producción
 RUN npm ci --prefer-offline --no-audit || npm install --only=production
+
+# Generar cliente de Prisma
+RUN npx prisma generate
 
 # Copiar el resto del código
 COPY . .
