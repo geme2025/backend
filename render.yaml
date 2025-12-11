@@ -1,3 +1,9 @@
+databases:
+  - name: lennin-ventas-db
+    plan: free
+    databaseName: ventas_db
+    user: ventas_user
+
 services:
   # Servicio Web (API Backend)
   - type: web
@@ -12,8 +18,10 @@ services:
         value: production
       - key: PORT
         value: 5000
-      - key: MONGODB_URI
-        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lennin-ventas-db
+          property: connectionString
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRE
