@@ -1,4 +1,4 @@
-import Producto from '../models/Producto.js';
+import { prisma } from '../config/prisma.js';
 
 // @desc    Obtener todos los productos
 // @route   GET /api/productos
@@ -7,39 +7,41 @@ export const getProductos = async (req, res) => {
   try {
     const { categoria, estado, stock_bajo, search, page = 1, limit = 10 } = req.query;
 
-    const query = {};
+    const where = {};
 
     // Filtro por categoría
     if (categoria) {
-      query.categoria = categoria;
+      where.categoriaId = parseInt(categoria);
     }
 
     // Filtro por estado
     if (estado) {
-      query.estado = estado === 'true';
+      where.estado = estado === 'true';
     }
 
     // Filtro por stock bajo
     if (stock_bajo === 'true') {
-      query.$expr = { $lte: ['$stock', '$stock_minimo'] };
+      where.stock = { lte: 'stock_minimo' };
     }
 
     // Búsqueda por código, nombre o descripción
     if (search) {
-      query.$or = [
-        { codigo: { $regex: search, $options: 'i' } },
-        { nombre: { $regex: search, $options: 'i' } },
-        { descripcion: { $regex: search, $options: 'i' } }
+      where.OR = [
+        { codigo: { contains: search, mode: 'insensitive' } },
+        { nombre: { contains: search, mode: 'insensitive' } },
+        { descripcion: { contains: search, mode: 'insensitive' } }
       ];
     }
 
-    const productos = await Producto.find(query)
-      .populate('categoria', 'nombre')
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+    const productos = await prisma.producto.findMany({
+      where,
+      include: { categoria: { select: { nombre: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: limit * 1,
+      skip: (page - 1) * limit
+    });
 
-    const total = await Producto.countDocuments(query);
+    const total = await prisma.producto.count({ where });
 
     res.status(200).json({
       success: true,
@@ -63,7 +65,10 @@ export const getProductos = async (req, res) => {
 // @access  Privado
 export const getProducto = async (req, res) => {
   try {
-    const producto = await Producto.findById(req.params.id).populate('categoria', 'nombre descripcion');
+    const producto = await prisma.producto.findUnique({
+      where: { id: parseInt(req.params.id) },
+      include: { categoria: { select: { nombre: true, descripcion: true } } }
+    });
 
     if (!producto) {
       return res.status(404).json({
@@ -89,7 +94,9 @@ export const getProducto = async (req, res) => {
 // @access  Privado (Admin)
 export const createProducto = async (req, res) => {
   try {
-    const producto = await Producto.create(req.body);
+    const producto = await prisma.producto.create({
+      data: req.body
+    });
 
     res.status(201).json({
       success: true,
@@ -108,21 +115,11 @@ export const createProducto = async (req, res) => {
 // @access  Privado (Admin)
 export const updateProducto = async (req, res) => {
   try {
-    const producto = await Producto.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      {
-        new: true,
-        runValidators: true
-      }
-    ).populate('categoria', 'nombre');
-
-    if (!producto) {
-      return res.status(404).json({
-        success: false,
-        message: 'Producto no encontrado'
-      });
-    }
+    const producto = await prisma.producto.update({
+      where: { id: parseInt(req.params.id) },
+      data: req.body,
+      include: { categoria: { select: { nombre: true } } }
+    });
 
     res.status(200).json({
       success: true,
@@ -141,16 +138,9 @@ export const updateProducto = async (req, res) => {
 // @access  Privado (Admin)
 export const deleteProducto = async (req, res) => {
   try {
-    const producto = await Producto.findById(req.params.id);
-
-    if (!producto) {
-      return res.status(404).json({
-        success: false,
-        message: 'Producto no encontrado'
-      });
-    }
-
-    await producto.deleteOne();
+    const producto = await prisma.producto.delete({
+      where: { id: parseInt(req.params.id) }
+    });
 
     res.status(200).json({
       success: true,
@@ -178,7 +168,9 @@ export const updateStock = async (req, res) => {
       });
     }
 
-    const producto = await Producto.findById(req.params.id);
+    const producto = await prisma.producto.findUnique({
+      where: { id: parseInt(req.params.id) }
+    });
 
     if (!producto) {
       return res.status(404).json({
@@ -187,8 +179,10 @@ export const updateStock = async (req, res) => {
       });
     }
 
+    let nuevoStock = producto.stock;
+
     if (operacion === 'sumar') {
-      producto.stock += parseInt(cantidad);
+      nuevoStock += parseInt(cantidad);
     } else if (operacion === 'restar') {
       if (producto.stock < cantidad) {
         return res.status(400).json({
@@ -196,7 +190,7 @@ export const updateStock = async (req, res) => {
           message: 'Stock insuficiente'
         });
       }
-      producto.stock -= parseInt(cantidad);
+      nuevoStock -= parseInt(cantidad);
     } else {
       return res.status(400).json({
         success: false,
@@ -204,11 +198,14 @@ export const updateStock = async (req, res) => {
       });
     }
 
-    await producto.save();
+    const productoActualizado = await prisma.producto.update({
+      where: { id: parseInt(req.params.id) },
+      data: { stock: nuevoStock }
+    });
 
     res.status(200).json({
       success: true,
-      data: producto
+      data: productoActualizado
     });
   } catch (error) {
     res.status(500).json({

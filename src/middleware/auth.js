@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import User from '../models/User.js';
+import { prisma } from '../config/prisma.js';
 
 export const protegerRuta = async (req, res, next) => {
   let token;
@@ -13,7 +13,18 @@ export const protegerRuta = async (req, res, next) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
       // Obtener usuario del token
-      req.usuario = await User.findById(decoded.id).select('-password');
+      req.usuario = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          activo: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
 
       if (!req.usuario || !req.usuario.activo) {
         return res.status(401).json({

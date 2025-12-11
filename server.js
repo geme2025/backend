@@ -4,14 +4,14 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
-import connectDB from './src/config/database.js';
+import { conectarDB } from './src/config/prisma.js';
 import { errorHandler, notFound } from './src/middleware/errorHandler.js';
 
 // Cargar variables de entorno
 dotenv.config();
 
 // Conectar a la base de datos
-connectDB();
+conectarDB();
 
 // Crear aplicación Express
 const app = express();

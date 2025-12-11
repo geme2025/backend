@@ -1,0 +1,141 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Modelo User - Usuarios del sistema
+model User {
+  id        Int       @id @default(autoincrement())
+  name      String    @db.VarChar(100)
+  email     String    @unique @db.VarChar(255)
+  password  String    @db.Text
+  role      String    @default("vendedor") @db.VarChar(50)
+  activo    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relaciones
+  ventas    Venta[]
+
+  @@map("users")
+  @@index([email])
+  @@index([activo])
+}
+
+// Modelo Categoria - Categorías de productos
+model Categoria {
+  id          Int         @id @default(autoincrement())
+  nombre      String      @unique @db.VarChar(100)
+  descripcion String?     @db.VarChar(500)
+  estado      Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relaciones
+  productos   Producto[]
+
+  @@map("categorias")
+  @@index([nombre])
+  @@index([estado])
+}
+
+// Modelo Producto - Productos
+model Producto {
+  id            Int       @id @default(autoincrement())
+  categoriaId   Int
+  categoria     Categoria @relation(fields: [categoriaId], references: [id], onDelete: Cascade)
+  codigo        String    @unique @db.VarChar(50)
+  nombre        String    @db.VarChar(150)
+  descripcion   String?   @db.VarChar(1000)
+  precio_compra Decimal   @db.Decimal(10, 2)
+  precio_venta  Decimal   @db.Decimal(10, 2)
+  stock         Int       @default(0)
+  stock_minimo  Int       @default(10)
+  estado        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relaciones
+  ventaItems    VentaItem[]
+
+  @@map("productos")
+  @@index([codigo])
+  @@index([categoriaId])
+  @@index([estado])
+}
+
+// Modelo Cliente - Clientes
+model Cliente {
+  id                Int       @id @default(autoincrement())
+  tipo_documento    String    @db.VarChar(20)
+  numero_documento  String    @unique
+  nombres           String    @db.VarChar(100)
+  apellidos         String    @db.VarChar(100)
+  telefono          String?   @db.VarChar(20)
+  email             String?   @db.VarChar(255)
+  direccion         String?   @db.VarChar(255)
+  estado            Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relaciones
+  ventas            Venta[]
+
+  @@map("clientes")
+  @@unique([tipo_documento, numero_documento])
+  @@index([numero_documento])
+  @@index([estado])
+}
+
+// Modelo Venta - Ventas
+model Venta {
+  id            Int         @id @default(autoincrement())
+  numero_venta  String      @unique
+  clienteId     Int?
+  cliente       Cliente?    @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  usuarioId     Int
+  usuario       User        @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  fecha_venta   DateTime    @default(now())
+  subtotal      Decimal     @db.Decimal(12, 2)
+  descuento     Decimal     @default(0) @db.Decimal(10, 2)
+  impuesto      Decimal     @default(0) @db.Decimal(10, 2)
+  total         Decimal     @db.Decimal(12, 2)
+  estado        String      @default("pendiente") @db.VarChar(50)
+  observaciones String?     @db.Text
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Relaciones
+  items         VentaItem[]
+
+  @@map("ventas")
+  @@index([numero_venta])
+  @@index([clienteId])
+  @@index([usuarioId])
+  @@index([estado])
+  @@index([fecha_venta])
+}
+
+// Modelo VentaItem - Items de las ventas
+model VentaItem {
+  id              Int       @id @default(autoincrement())
+  ventaId         Int
+  venta           Venta     @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  productoId      Int
+  producto        Producto  @relation(fields: [productoId], references: [id], onDelete: Restrict)
+  codigo          String    @db.VarChar(50)
+  nombre          String    @db.VarChar(150)
+  cantidad        Int
+  precio_unitario Decimal   @db.Decimal(10, 2)
+  descuento       Decimal   @default(0) @db.Decimal(10, 2)
+  subtotal        Decimal   @db.Decimal(12, 2)
+  createdAt       DateTime  @default(now())
+
+  @@map("detalle_ventas")
+  @@index([ventaId])
+  @@index([productoId])
+}

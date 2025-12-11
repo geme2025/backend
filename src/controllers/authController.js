@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import User from '../models/User.js';
+import { prisma } from '../config/prisma.js';
 
 // Generar JWT
 const generarToken = (id) => {
@@ -17,7 +17,10 @@ export const register = async (req, res) => {
     const { name, email, password, role } = req.body;
 
     // Verificar si el usuario ya existe
-    const usuarioExiste = await User.findOne({ email });
+    const usuarioExiste = await prisma.user.findUnique({
+      where: { email }
+    });
+
     if (usuarioExiste) {
       return res.status(400).json({
         success: false,
@@ -25,22 +28,28 @@ export const register = async (req, res) => {
       });
     }
 
+    // Encriptar contraseña
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
     // Crear usuario
-    const usuario = await User.create({
-      name,
-      email,
-      password,
-      role: role || 'vendedor'
+    const usuario = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: passwordHash,
+        role: role || 'vendedor'
+      }
     });
 
     res.status(201).json({
       success: true,
       data: {
-        _id: usuario._id,
+        id: usuario.id,
         name: usuario.name,
         email: usuario.email,
         role: usuario.role,
-        token: generarToken(usuario._id)
+        token: generarToken(usuario.id)
       }
     });
   } catch (error) {
@@ -67,7 +76,10 @@ export const login = async (req, res) => {
     }
 
     // Verificar usuario
-    const usuario = await User.findOne({ email }).select('+password');
+    const usuario = await prisma.user.findUnique({
+      where: { email }
+    });
+
     if (!usuario) {
       return res.status(401).json({
         success: false,
@@ -84,7 +96,7 @@ export const login = async (req, res) => {
     }
 
     // Verificar contraseña
-    const passwordValido = await usuario.compararPassword(password);
+    const passwordValido = await bcrypt.compare(password, usuario.password);
     if (!passwordValido) {
       return res.status(401).json({
         success: false,
@@ -95,11 +107,11 @@ export const login = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        _id: usuario._id,
+        id: usuario.id,
         name: usuario.name,
         email: usuario.email,
         role: usuario.role,
-        token: generarToken(usuario._id)
+        token: generarToken(usuario.id)
       }
     });
   } catch (error) {
@@ -115,7 +127,9 @@ export const login = async (req, res) => {
 // @access  Privado
 export const getMe = async (req, res) => {
   try {
-    const usuario = await User.findById(req.usuario._id);
+    const usuario = await prisma.user.findUnique({
+      where: { id: req.usuario.id }
+    });
 
     res.status(200).json({
       success: true,
@@ -139,14 +153,10 @@ export const updateProfile = async (req, res) => {
       email: req.body.email
     };
 
-    const usuario = await User.findByIdAndUpdate(
-      req.usuario._id,
-      camposActualizar,
-      {
-        new: true,
-        runValidators: true
-      }
-    );
+    const usuario = await prisma.user.update({
+      where: { id: req.usuario.id },
+      data: camposActualizar
+    });
 
     res.status(200).json({
       success: true,
@@ -174,10 +184,12 @@ export const updatePassword = async (req, res) => {
       });
     }
 
-    const usuario = await User.findById(req.usuario._id).select('+password');
+    const usuario = await prisma.user.findUnique({
+      where: { id: req.usuario.id }
+    });
 
     // Verificar contraseña actual
-    const passwordValido = await usuario.compararPassword(currentPassword);
+    const passwordValido = await bcrypt.compare(currentPassword, usuario.password);
     if (!passwordValido) {
       return res.status(401).json({
         success: false,
@@ -185,17 +197,23 @@ export const updatePassword = async (req, res) => {
       });
     }
 
-    usuario.password = newPassword;
-    await usuario.save();
+    // Encriptar nueva contraseña
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(newPassword, salt);
+
+    const usuarioActualizado = await prisma.user.update({
+      where: { id: req.usuario.id },
+      data: { password: passwordHash }
+    });
 
     res.status(200).json({
       success: true,
       data: {
-        _id: usuario._id,
-        name: usuario.name,
-        email: usuario.email,
-        role: usuario.role,
-        token: generarToken(usuario._id)
+        id: usuarioActualizado.id,
+        name: usuarioActualizado.name,
+        email: usuarioActualizado.email,
+        role: usuarioActualizado.role,
+        token: generarToken(usuarioActualizado.id)
       }
     });
   } catch (error) {

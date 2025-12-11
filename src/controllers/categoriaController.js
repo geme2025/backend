@@ -1,4 +1,4 @@
-import Categoria from '../models/Categoria.js';
+import { prisma } from '../config/prisma.js';
 
 // @desc    Obtener todas las categorías
 // @route   GET /api/categorias
@@ -7,27 +7,29 @@ export const getCategorias = async (req, res) => {
   try {
     const { estado, search, page = 1, limit = 10 } = req.query;
 
-    const query = {};
+    const where = {};
 
     // Filtro por estado
     if (estado) {
-      query.estado = estado === 'true';
+      where.estado = estado === 'true';
     }
 
     // Búsqueda por nombre o descripción
     if (search) {
-      query.$or = [
-        { nombre: { $regex: search, $options: 'i' } },
-        { descripcion: { $regex: search, $options: 'i' } }
+      where.OR = [
+        { nombre: { contains: search, mode: 'insensitive' } },
+        { descripcion: { contains: search, mode: 'insensitive' } }
       ];
     }
 
-    const categorias = await Categoria.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+    const categorias = await prisma.categoria.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: limit * 1,
+      skip: (page - 1) * limit
+    });
 
-    const total = await Categoria.countDocuments(query);
+    const total = await prisma.categoria.count({ where });
 
     res.status(200).json({
       success: true,
@@ -51,7 +53,9 @@ export const getCategorias = async (req, res) => {
 // @access  Privado
 export const getCategoria = async (req, res) => {
   try {
-    const categoria = await Categoria.findById(req.params.id);
+    const categoria = await prisma.categoria.findUnique({
+      where: { id: parseInt(req.params.id) }
+    });
 
     if (!categoria) {
       return res.status(404).json({
@@ -77,7 +81,9 @@ export const getCategoria = async (req, res) => {
 // @access  Privado (Admin)
 export const createCategoria = async (req, res) => {
   try {
-    const categoria = await Categoria.create(req.body);
+    const categoria = await prisma.categoria.create({
+      data: req.body
+    });
 
     res.status(201).json({
       success: true,
@@ -96,21 +102,11 @@ export const createCategoria = async (req, res) => {
 // @access  Privado (Admin)
 export const updateCategoria = async (req, res) => {
   try {
-    const categoria = await Categoria.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      {
-        new: true,
-        runValidators: true
-      }
-    );
+    const categoria = await prisma.categoria.update({
+      where: { id: parseInt(req.params.id) },
+      data: req.body
+    });
 
-    if (!categoria) {
-      return res.status(404).json({
-        success: false,
-        message: 'Categoría no encontrada'
-      });
-    }
 
     res.status(200).json({
       success: true,
@@ -129,16 +125,9 @@ export const updateCategoria = async (req, res) => {
 // @access  Privado (Admin)
 export const deleteCategoria = async (req, res) => {
   try {
-    const categoria = await Categoria.findById(req.params.id);
-
-    if (!categoria) {
-      return res.status(404).json({
-        success: false,
-        message: 'Categoría no encontrada'
-      });
-    }
-
-    await categoria.deleteOne();
+    const categoria = await prisma.categoria.delete({
+      where: { id: parseInt(req.params.id) }
+    });
 
     res.status(200).json({
       success: true,

@@ -1,4 +1,4 @@
-import Cliente from '../models/Cliente.js';
+import { prisma } from '../config/prisma.js';
 
 // @desc    Obtener todos los clientes
 // @route   GET /api/clientes
@@ -7,34 +7,36 @@ export const getClientes = async (req, res) => {
   try {
     const { tipo_documento, estado, search, page = 1, limit = 10 } = req.query;
 
-    const query = {};
+    const where = {};
 
     // Filtro por tipo de documento
     if (tipo_documento) {
-      query.tipo_documento = tipo_documento;
+      where.tipo_documento = tipo_documento;
     }
 
     // Filtro por estado
     if (estado) {
-      query.estado = estado === 'true';
+      where.estado = estado === 'true';
     }
 
     // Búsqueda por documento, nombres, apellidos o email
     if (search) {
-      query.$or = [
-        { numero_documento: { $regex: search, $options: 'i' } },
-        { nombres: { $regex: search, $options: 'i' } },
-        { apellidos: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
+      where.OR = [
+        { numero_documento: { contains: search, mode: 'insensitive' } },
+        { nombres: { contains: search, mode: 'insensitive' } },
+        { apellidos: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } }
       ];
     }
 
-    const clientes = await Cliente.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+    const clientes = await prisma.cliente.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: limit * 1,
+      skip: (page - 1) * limit
+    });
 
-    const total = await Cliente.countDocuments(query);
+    const total = await prisma.cliente.count({ where });
 
     res.status(200).json({
       success: true,
@@ -58,7 +60,9 @@ export const getClientes = async (req, res) => {
 // @access  Privado
 export const getCliente = async (req, res) => {
   try {
-    const cliente = await Cliente.findById(req.params.id);
+    const cliente = await prisma.cliente.findUnique({
+      where: { id: parseInt(req.params.id) }
+    });
 
     if (!cliente) {
       return res.status(404).json({
@@ -84,7 +88,9 @@ export const getCliente = async (req, res) => {
 // @access  Privado
 export const buscarPorDocumento = async (req, res) => {
   try {
-    const cliente = await Cliente.findOne({ numero_documento: req.params.documento });
+    const cliente = await prisma.cliente.findFirst({
+      where: { numero_documento: req.params.documento }
+    });
 
     if (!cliente) {
       return res.status(404).json({
@@ -110,7 +116,9 @@ export const buscarPorDocumento = async (req, res) => {
 // @access  Privado
 export const createCliente = async (req, res) => {
   try {
-    const cliente = await Cliente.create(req.body);
+    const cliente = await prisma.cliente.create({
+      data: req.body
+    });
 
     res.status(201).json({
       success: true,
@@ -129,21 +137,10 @@ export const createCliente = async (req, res) => {
 // @access  Privado
 export const updateCliente = async (req, res) => {
   try {
-    const cliente = await Cliente.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      {
-        new: true,
-        runValidators: true
-      }
-    );
-
-    if (!cliente) {
-      return res.status(404).json({
-        success: false,
-        message: 'Cliente no encontrado'
-      });
-    }
+    const cliente = await prisma.cliente.update({
+      where: { id: parseInt(req.params.id) },
+      data: req.body
+    });
 
     res.status(200).json({
       success: true,
@@ -162,16 +159,9 @@ export const updateCliente = async (req, res) => {
 // @access  Privado (Admin)
 export const deleteCliente = async (req, res) => {
   try {
-    const cliente = await Cliente.findById(req.params.id);
-
-    if (!cliente) {
-      return res.status(404).json({
-        success: false,
-        message: 'Cliente no encontrado'
-      });
-    }
-
-    await cliente.deleteOne();
+    const cliente = await prisma.cliente.delete({
+      where: { id: parseInt(req.params.id) }
+    });
 
     res.status(200).json({
       success: true,

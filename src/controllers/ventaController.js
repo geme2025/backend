@@ -1,5 +1,4 @@
-import Venta from '../models/Venta.js';
-import Producto from '../models/Producto.js';
+import { prisma } from '../config/prisma.js';
 
 // @desc    Obtener todas las ventas
 // @route   GET /api/ventas
@@ -17,56 +16,87 @@ export const getVentas = async (req, res) => {
       limit = 10
     } = req.query;
 
-    const query = {};
+    const where = {};
 
     // Filtro por rango de fechas
     if (fecha_inicio || fecha_fin) {
-      query.fecha_venta = {};
+      where.fecha_venta = {};
       if (fecha_inicio) {
-        query.fecha_venta.$gte = new Date(fecha_inicio);
+        where.fecha_venta.gte = new Date(fecha_inicio);
       }
       if (fecha_fin) {
-        query.fecha_venta.$lte = new Date(fecha_fin);
+        where.fecha_venta.lte = new Date(fecha_fin);
       }
     }
 
     // Filtro por cliente
     if (cliente) {
-      query.cliente = cliente;
+      where.clienteId = parseInt(cliente);
     }
 
     // Filtro por usuario
     if (usuario) {
-      query.usuario = usuario;
+      where.usuarioId = parseInt(usuario);
     }
 
     // Filtro por método de pago
     if (metodo_pago) {
-      query.metodo_pago = metodo_pago;
+      where.metodo_pago = metodo_pago;
     }
 
     // Filtro por estado
     if (estado) {
-      query.estado = estado;
+      where.estado = estado;
     }
 
-    const ventas = await Venta.find(query)
-      .populate('cliente', 'nombres apellidos numero_documento')
-      .populate('usuario', 'name email')
-      .populate('items.producto', 'nombre codigo')
-      .sort({ fecha_venta: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
 
-    const total = await Venta.countDocuments(query);
+    const ventas = await prisma.venta.findMany({
+      where,
+      include: {
+        cliente: {
+          select: {
+            id: true,
+            nombres: true,
+            apellidos: true,
+            numero_documento: true
+          }
+        },
+        usuario: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        items: {
+          include: {
+            producto: {
+              select: {
+                id: true,
+                nombre: true,
+                codigo: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { fecha_venta: 'desc' },
+      skip,
+      take: limitNum
+    });
+
+    const total = await prisma.venta.count({ where });
 
     res.status(200).json({
       success: true,
       data: ventas,
       pagination: {
         total,
-        page: parseInt(page),
-        pages: Math.ceil(total / limit)
+        page: pageNum,
+        pages: Math.ceil(total / limitNum)
       }
     });
   } catch (error) {
@@ -82,10 +112,40 @@ export const getVentas = async (req, res) => {
 // @access  Privado
 export const getVenta = async (req, res) => {
   try {
-    const venta = await Venta.findById(req.params.id)
-      .populate('cliente', 'nombres apellidos numero_documento telefono direccion')
-      .populate('usuario', 'name email')
-      .populate('items.producto', 'nombre codigo imagen');
+    const venta = await prisma.venta.findUnique({
+      where: { id: parseInt(req.params.id) },
+      include: {
+        cliente: {
+          select: {
+            id: true,
+            nombres: true,
+            apellidos: true,
+            numero_documento: true,
+            telefono: true,
+            direccion: true
+          }
+        },
+        usuario: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        items: {
+          include: {
+            producto: {
+              select: {
+                id: true,
+                nombre: true,
+                codigo: true,
+                imagen: true
+              }
+            }
+          }
+        }
+      }
+    });
 
     if (!venta) {
       return res.status(404).json({
@@ -111,10 +171,40 @@ export const getVenta = async (req, res) => {
 // @access  Privado
 export const getVentaPorNumero = async (req, res) => {
   try {
-    const venta = await Venta.findOne({ numero_venta: req.params.numero })
-      .populate('cliente', 'nombres apellidos numero_documento telefono direccion')
-      .populate('usuario', 'name email')
-      .populate('items.producto', 'nombre codigo imagen');
+    const venta = await prisma.venta.findFirst({
+      where: { numero_venta: req.params.numero },
+      include: {
+        cliente: {
+          select: {
+            id: true,
+            nombres: true,
+            apellidos: true,
+            numero_documento: true,
+            telefono: true,
+            direccion: true
+          }
+        },
+        usuario: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        items: {
+          include: {
+            producto: {
+              select: {
+                id: true,
+                nombre: true,
+                codigo: true,
+                imagen: true
+              }
+            }
+          }
+        }
+      }
+    });
 
     if (!venta) {
       return res.status(404).json({
@@ -153,7 +243,9 @@ export const createVenta = async (req, res) => {
     // Verificar stock y preparar items
     const itemsVenta = [];
     for (const item of items) {
-      const producto = await Producto.findById(item.producto);
+      const producto = await prisma.producto.findUnique({
+        where: { id: parseInt(item.producto) }
+      });
 
       if (!producto) {
         return res.status(404).json({
@@ -173,7 +265,7 @@ export const createVenta = async (req, res) => {
       const subtotal = (item.cantidad * item.precio_unitario) - (item.descuento || 0);
 
       itemsVenta.push({
-        producto: producto._id,
+        productoId: producto.id,
         codigo: producto.codigo,
         nombre: producto.nombre,
         cantidad: item.cantidad,
@@ -183,8 +275,10 @@ export const createVenta = async (req, res) => {
       });
 
       // Reducir stock
-      producto.stock -= item.cantidad;
-      await producto.save();
+      await prisma.producto.update({
+        where: { id: producto.id },
+        data: { stock: producto.stock - item.cantidad }
+      });
     }
 
     // Calcular totales
@@ -193,29 +287,60 @@ export const createVenta = async (req, res) => {
     const total = subtotal + igv;
 
     // Generar número de venta
-    const numero_venta = await Venta.generarNumeroVenta();
+    const ultimaVenta = await prisma.venta.findFirst({
+      orderBy: { id: 'desc' },
+      take: 1
+    });
+    const numero_venta = ultimaVenta ? `V${String(ultimaVenta.id + 1).padStart(6, '0')}` : 'V000001';
 
     // Crear venta
-    const venta = await Venta.create({
-      numero_venta,
-      cliente,
-      usuario: req.usuario._id,
-      fecha_venta: new Date(),
-      items: itemsVenta,
-      subtotal,
-      igv,
-      total,
-      metodo_pago,
-      observaciones,
-      estado: 'completada'
+    const venta = await prisma.venta.create({
+      data: {
+        numero_venta,
+        clienteId: parseInt(cliente),
+        usuarioId: parseInt(req.usuario.id),
+        fecha_venta: new Date(),
+        items: {
+          createMany: {
+            data: itemsVenta
+          }
+        },
+        subtotal,
+        igv,
+        total,
+        metodo_pago,
+        observaciones,
+        estado: 'completada'
+      },
+      include: {
+        cliente: {
+          select: {
+            id: true,
+            nombres: true,
+            apellidos: true,
+            numero_documento: true
+          }
+        },
+        usuario: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        items: {
+          include: {
+            producto: {
+              select: {
+                id: true,
+                nombre: true,
+                codigo: true
+              }
+            }
+          }
+        }
+      }
     });
-
-    // Poblar referencias
-    await venta.populate([
-      { path: 'cliente', select: 'nombres apellidos numero_documento' },
-      { path: 'usuario', select: 'name email' },
-      { path: 'items.producto', select: 'nombre codigo' }
-    ]);
 
     res.status(201).json({
       success: true,
@@ -234,7 +359,10 @@ export const createVenta = async (req, res) => {
 // @access  Privado (Admin)
 export const anularVenta = async (req, res) => {
   try {
-    const venta = await Venta.findById(req.params.id);
+    const venta = await prisma.venta.findUnique({
+      where: { id: parseInt(req.params.id) },
+      include: { items: true }
+    });
 
     if (!venta) {
       return res.status(404).json({
@@ -252,19 +380,25 @@ export const anularVenta = async (req, res) => {
 
     // Devolver stock
     for (const item of venta.items) {
-      const producto = await Producto.findById(item.producto);
+      const producto = await prisma.producto.findUnique({
+        where: { id: item.productoId }
+      });
       if (producto) {
-        producto.stock += item.cantidad;
-        await producto.save();
+        await prisma.producto.update({
+          where: { id: item.productoId },
+          data: { stock: producto.stock + item.cantidad }
+        });
       }
     }
 
-    venta.estado = 'anulada';
-    await venta.save();
+    const ventaActualizada = await prisma.venta.update({
+      where: { id: parseInt(req.params.id) },
+      data: { estado: 'anulada' }
+    });
 
     res.status(200).json({
       success: true,
-      data: venta
+      data: ventaActualizada
     });
   } catch (error) {
     res.status(500).json({
@@ -280,86 +414,97 @@ export const anularVenta = async (req, res) => {
 export const getEstadisticas = async (req, res) => {
   try {
     const hoy = new Date();
+    const inicioHoy = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 0, 0, 0, 0);
+    const finHoy = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 23, 59, 59, 999);
+    
     const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
     const inicioAnio = new Date(hoy.getFullYear(), 0, 1);
 
     // Ventas del día
-    const ventasHoy = await Venta.aggregate([
-      {
-        $match: {
-          fecha_venta: {
-            $gte: new Date(hoy.setHours(0, 0, 0, 0)),
-            $lte: new Date(hoy.setHours(23, 59, 59, 999))
-          },
-          estado: 'completada'
-        }
+    const ventasHoy = await prisma.venta.aggregate({
+      where: {
+        fecha_venta: {
+          gte: inicioHoy,
+          lte: finHoy
+        },
+        estado: 'completada'
       },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$total' },
-          cantidad: { $sum: 1 }
-        }
-      }
-    ]);
+      _sum: { total: true },
+      _count: true
+    });
 
     // Ventas del mes
-    const ventasMes = await Venta.aggregate([
-      {
-        $match: {
-          fecha_venta: { $gte: inicioMes },
-          estado: 'completada'
-        }
+    const ventasMes = await prisma.venta.aggregate({
+      where: {
+        fecha_venta: { gte: inicioMes },
+        estado: 'completada'
       },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$total' },
-          cantidad: { $sum: 1 }
-        }
-      }
-    ]);
+      _sum: { total: true },
+      _count: true
+    });
 
     // Ventas del año
-    const ventasAnio = await Venta.aggregate([
-      {
-        $match: {
-          fecha_venta: { $gte: inicioAnio },
+    const ventasAnio = await prisma.venta.aggregate({
+      where: {
+        fecha_venta: { gte: inicioAnio },
+        estado: 'completada'
+      },
+      _sum: { total: true },
+      _count: true
+    });
+
+    // Top productos vendidos
+    const topProductos = await prisma.ventaItem.groupBy({
+      by: ['productoId'],
+      where: {
+        venta: {
           estado: 'completada'
         }
       },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$total' },
-          cantidad: { $sum: 1 }
-        }
-      }
-    ]);
-
-    // Top productos vendidos
-    const topProductos = await Venta.aggregate([
-      { $match: { estado: 'completada' } },
-      { $unwind: '$items' },
-      {
-        $group: {
-          _id: '$items.producto',
-          nombre: { $first: '$items.nombre' },
-          cantidad: { $sum: '$items.cantidad' },
-          total: { $sum: '$items.subtotal' }
+      _sum: {
+        cantidad: true,
+        subtotal: true
+      },
+      orderBy: {
+        _sum: {
+          cantidad: 'desc'
         }
       },
-      { $sort: { cantidad: -1 } },
-      { $limit: 10 }
-    ]);
+      take: 10
+    });
+
+    // Obtener detalles de productos
+    const topProductosDetallados = await Promise.all(
+      topProductos.map(async (item) => {
+        const producto = await prisma.producto.findUnique({
+          where: { id: item.productoId },
+          select: { nombre: true }
+        });
+        return {
+          productoId: item.productoId,
+          nombre: producto?.nombre,
+          cantidad: item._sum.cantidad,
+          total: item._sum.subtotal
+        };
+      })
+    );
 
     res.status(200).json({
       success: true,
       data: {
-        hoy: ventasHoy[0] || { total: 0, cantidad: 0 },
-        mes: ventasMes[0] || { total: 0, cantidad: 0 },
-        anio: ventasAnio[0] || { total: 0, cantidad: 0 },
-        topProductos
+        hoy: {
+          total: ventasHoy._sum.total || 0,
+          cantidad: ventasHoy._count || 0
+        },
+        mes: {
+          total: ventasMes._sum.total || 0,
+          cantidad: ventasMes._count || 0
+        },
+        anio: {
+          total: ventasAnio._sum.total || 0,
+          cantidad: ventasAnio._count || 0
+        },
+        topProductos: topProductosDetallados
       }
     });
   } catch (error) {
